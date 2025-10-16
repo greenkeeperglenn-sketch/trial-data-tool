@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Download, Upload, BarChart3, Grid3x3, List, Eye, ChevronLeft, ChevronRight, Camera, FileText, X } from 'lucide-react';
+import { Plus, Trash2, Download, Upload, BarChart3, Grid, List, Eye, ChevronLeft, ChevronRight, Camera, FileText, X } from 'lucide-react';
 
 const TrialDataTool = () => {
   const [step, setStep] = useState('library');
