@@ -662,7 +662,7 @@ const TrialDataTool = () => {
           <div className="bg-white p-4 rounded-lg shadow mb-4">
             <div className="flex gap-2 flex-wrap">
               <button onClick={() => setViewMode('field')} className={`flex items-center gap-2 px-3 py-2 rounded ${viewMode === 'field' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>
-                <Grid3x3 size={18} /> Field
+                <Grid size={18} /> Field
               </button>
               <button onClick={() => setViewMode('table')} className={`flex items-center gap-2 px-3 py-2 rounded ${viewMode === 'table' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>
                 <List size={18} /> Table
