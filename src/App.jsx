@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Download, Upload, BarChart3, Grid, List, Eye, ChevronLeft, ChevronRight, Camera, FileText, X } from 'lucide-react';
+import { Plus, Trash2, Download, Upload, BarChart3, Grid, List, Eye, ChevronLeft, ChevronRight, Camera, FileText, X, RotateCw } from 'lucide-react';
 
 const TrialDataTool = () => {
   const [step, setStep] = useState('library');
@@ -9,12 +9,16 @@ const TrialDataTool = () => {
     trialName: '',
     numBlocks: 4,
     numTreatments: 3,
-    numReps: 1,
     treatments: ['Treatment A', 'Treatment B', 'Treatment C'],
     assessmentTypes: [
       { name: 'Turf Quality', min: 1, max: 10 },
       { name: 'Turf Color', min: 1, max: 10 },
-      { name: 'NDVI', min: 0, max: 1 }
+      { name: 'NDVI', min: 0, max: 1 },
+      { name: '% Live Ground Cover', min: 0, max: 100 },
+      { name: '% Disease Severity', min: 0, max: 100 },
+      { name: '% Microdochium Patch', min: 0, max: 100 },
+      { name: '% Dollar Spot', min: 0, max: 100 },
+      { name: '% Anthracnose', min: 0, max: 100 }
     ]
   });
   const [layout, setLayout] = useState([]);
@@ -26,7 +30,10 @@ const TrialDataTool = () => {
   const [showTreatments, setShowTreatments] = useState(false);
   const [photos, setPhotos] = useState({});
   const [notes, setNotes] = useState({});
-  // Load trials from localStorage on mount
+  const [reverseColorScale, setReverseColorScale] = useState(false);
+  const [showInputDropdown, setShowInputDropdown] = useState(false);
+
+  // Load trials from localStorage
   useEffect(() => {
     const savedTrials = localStorage.getItem('trials');
     if (savedTrials) {
@@ -34,14 +41,13 @@ const TrialDataTool = () => {
     }
   }, []);
 
-  // Save trials to localStorage whenever they change
+  // Save trials to localStorage
   useEffect(() => {
     if (Object.keys(trials).length > 0) {
       localStorage.setItem('trials', JSON.stringify(trials));
     }
   }, [trials]);
 
-  // Save current trial data
   const saveCurrentTrial = () => {
     if (!currentTrialId) return;
     const trialData = {
@@ -58,12 +64,12 @@ const TrialDataTool = () => {
     setTrials(prev => ({ ...prev, [currentTrialId]: trialData }));
   };
 
-  // Auto-save when data changes
   useEffect(() => {
     if (currentTrialId && layout.length > 0) {
       saveCurrentTrial();
     }
   }, [config, layout, assessmentDates, photos, notes]);
+
   const createNewTrial = () => {
     const id = Date.now().toString();
     setCurrentTrialId(id);
@@ -71,12 +77,16 @@ const TrialDataTool = () => {
       trialName: 'New Trial',
       numBlocks: 4,
       numTreatments: 3,
-      numReps: 1,
       treatments: ['Treatment A', 'Treatment B', 'Treatment C'],
       assessmentTypes: [
         { name: 'Turf Quality', min: 1, max: 10 },
         { name: 'Turf Color', min: 1, max: 10 },
-        { name: 'NDVI', min: 0, max: 1 }
+        { name: 'NDVI', min: 0, max: 1 },
+        { name: '% Live Ground Cover', min: 0, max: 100 },
+        { name: '% Disease Severity', min: 0, max: 100 },
+        { name: '% Microdochium Patch', min: 0, max: 100 },
+        { name: '% Dollar Spot', min: 0, max: 100 },
+        { name: '% Anthracnose', min: 0, max: 100 }
       ]
     });
     setLayout([]);
@@ -108,7 +118,8 @@ const TrialDataTool = () => {
       });
     }
   };
- const exportTrialJSON = () => {
+
+  const exportTrialJSON = () => {
     const trial = trials[currentTrialId];
     if (!trial) return;
     const dataStr = JSON.stringify(trial, null, 2);
@@ -195,23 +206,22 @@ const TrialDataTool = () => {
     a.download = `${config.trialName}_${selectedAssessmentType}_summary.csv`;
     a.click();
     URL.revokeObjectURL(url);
-  }; 
+  };
+
   const generateLayout = () => {
     const newLayout = [];
     for (let block = 1; block <= config.numBlocks; block++) {
       const blockPlots = [];
       const treatments = [...Array(config.numTreatments).keys()];
-      for (let rep = 0; rep < config.numReps; rep++) {
-        const shuffled = [...treatments].sort(() => Math.random() - 0.5);
-        shuffled.forEach(treatmentIdx => {
-          blockPlots.push({
-            block,
-            treatment: treatmentIdx,
-            treatmentName: config.treatments[treatmentIdx],
-            plot: `B${block}-T${treatmentIdx + 1}-R${rep + 1}`
-          });
+      const shuffled = [...treatments].sort(() => Math.random() - 0.5);
+      shuffled.forEach(treatmentIdx => {
+        blockPlots.push({
+          block,
+          treatment: treatmentIdx,
+          treatmentName: config.treatments[treatmentIdx],
+          plot: `B${block}-T${treatmentIdx + 1}`
         });
-      }
+      });
       newLayout.push(blockPlots);
     }
     setLayout(newLayout);
@@ -282,6 +292,7 @@ const TrialDataTool = () => {
       prevDates.map(d => d.date === currentDateObj.date ? updatedDate : d)
     );
   };
+
   const handlePhotoUpload = (plotId, dateStr, e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -308,7 +319,8 @@ const TrialDataTool = () => {
     const key = `${dateStr}_${assessmentType}`;
     setNotes(prev => ({ ...prev, [key]: value }));
   };
- const getValueColor = (value, assessmentType, dateObj) => {
+
+  const getValueColor = (value, assessmentType, dateObj) => {
     if (!value || value === '') return 'bg-white border-gray-300';
     const numValue = parseFloat(value);
     const allValues = Object.values(dateObj.assessments[assessmentType])
@@ -318,18 +330,22 @@ const TrialDataTool = () => {
     const min = Math.min(...allValues);
     const max = Math.max(...allValues);
     const range = max - min;
-    if (range === 0) return 'bg-yellow-300 border-yellow-500';
-    const normalized = Math.max(0, Math.min(1, (numValue - min) / range));
-    if (normalized < 0.1) return 'bg-red-300 border-red-500';
-    else if (normalized < 0.2) return 'bg-red-200 border-red-400';
-    else if (normalized < 0.3) return 'bg-orange-300 border-orange-500';
-    else if (normalized < 0.4) return 'bg-orange-200 border-orange-400';
-    else if (normalized < 0.5) return 'bg-yellow-300 border-yellow-500';
-    else if (normalized < 0.6) return 'bg-yellow-200 border-yellow-400';
-    else if (normalized < 0.7) return 'bg-lime-300 border-lime-500';
-    else if (normalized < 0.8) return 'bg-green-200 border-green-400';
-    else if (normalized < 0.9) return 'bg-green-300 border-green-500';
-    else return 'bg-green-400 border-green-600';
+    if (range === 0) return 'bg-green-300 border-green-500';
+    
+    let normalized = Math.max(0, Math.min(1, (numValue - min) / range));
+    if (reverseColorScale) normalized = 1 - normalized;
+    
+    // White to dark green scale
+    if (normalized < 0.1) return 'bg-white border-gray-300';
+    else if (normalized < 0.2) return 'bg-green-50 border-green-200';
+    else if (normalized < 0.3) return 'bg-green-100 border-green-300';
+    else if (normalized < 0.4) return 'bg-green-200 border-green-400';
+    else if (normalized < 0.5) return 'bg-green-300 border-green-500';
+    else if (normalized < 0.6) return 'bg-green-400 border-green-600';
+    else if (normalized < 0.7) return 'bg-green-500 border-green-700 text-white';
+    else if (normalized < 0.8) return 'bg-green-600 border-green-800 text-white';
+    else if (normalized < 0.9) return 'bg-green-700 border-green-900 text-white';
+    else return 'bg-green-800 border-green-950 text-white';
   };
 
   const calculateStats = (dateObj, assessmentType) => {
@@ -370,7 +386,7 @@ const TrialDataTool = () => {
     const fValue = msTreatment / msError;
     const fCritical = 3.0;
     const significant = fValue > fCritical;
-    const lsd = 1.96 * Math.sqrt(2 * msError / (config.numBlocks * config.numReps));
+    const lsd = 1.96 * Math.sqrt(2 * msError / config.numBlocks);
     const sortedMeans = [...means].sort((a, b) => b.mean - a.mean);
     const groups = [];
     sortedMeans.forEach((mean, idx) => {
@@ -391,8 +407,11 @@ const TrialDataTool = () => {
       msError: msError.toFixed(2)
     };
   };
+
   const currentDateObj = assessmentDates[currentDateIndex];
- if (step === 'library') {
+
+  // Library View
+  if (step === 'library') {
     const trialList = Object.values(trials).sort((a, b) => 
       new Date(b.lastModified) - new Date(a.lastModified)
     );
@@ -407,9 +426,14 @@ const TrialDataTool = () => {
             <Plus size={20} /> Create New Trial
           </button>
           <label className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg hover:bg-green-700 cursor-pointer">
-            <Upload size={20} /> Import Trial
+            <Upload size={20} /> Import Trial (JSON)
             <input type="file" accept=".json" onChange={importTrialJSON} className="hidden" />
           </label>
+        </div>
+        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+          <p className="text-sm text-gray-700">
+            <strong>💡 Tip:</strong> Use "Backup Trial" to export your trial as JSON. You can re-import it here to restore data or share with colleagues.
+          </p>
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {trialList.length === 0 ? (
@@ -439,7 +463,9 @@ const TrialDataTool = () => {
         </div>
       </div>
     );
-  } 
+  }
+
+  // Setup View
   if (step === 'setup') {
     return (
       <div className="p-6 max-w-4xl mx-auto">
@@ -482,16 +508,6 @@ const TrialDataTool = () => {
                 );
                 setConfig({...config, numTreatments: num, treatments: newTreatments});
               }}
-              className="w-full p-2 border rounded"
-              min="1"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-2">Replicates per Treatment (per block)</label>
-            <input
-              type="number"
-              value={config.numReps}
-              onChange={(e) => setConfig({...config, numReps: parseInt(e.target.value) || 1})}
               className="w-full p-2 border rounded"
               min="1"
             />
@@ -590,7 +606,9 @@ const TrialDataTool = () => {
       </div>
     );
   }
-  // Data Entry View
+
+  // Data Entry View continues...
+// Data Entry View
   return (
     <div className="p-4 max-w-7xl mx-auto">
       <div className="mb-4 flex justify-between items-center flex-wrap gap-2">
@@ -606,7 +624,7 @@ const TrialDataTool = () => {
             <Download size={16} /> Summary
           </button>
           <button onClick={exportTrialJSON} className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded text-sm hover:bg-purple-700">
-            <Download size={16} /> Backup
+            <Download size={16} /> Backup Trial
           </button>
           <button onClick={() => { saveCurrentTrial(); setStep('library'); }} className="px-3 py-2 bg-gray-200 rounded text-sm hover:bg-gray-300">
             ← Library
@@ -658,23 +676,51 @@ const TrialDataTool = () => {
             </div>
           </div>
 
-          {/* View Mode Toggle */}
+          {/* NEW Navigation Structure */}
           <div className="bg-white p-4 rounded-lg shadow mb-4">
             <div className="flex gap-2 flex-wrap">
-              <button onClick={() => setViewMode('field')} className={`flex items-center gap-2 px-3 py-2 rounded ${viewMode === 'field' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>
-                <Grid size={18} /> Field
-              </button>
-              <button onClick={() => setViewMode('table')} className={`flex items-center gap-2 px-3 py-2 rounded ${viewMode === 'table' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>
-                <List size={18} /> Table
-              </button>
-              <button onClick={() => setViewMode('summary')} className={`flex items-center gap-2 px-3 py-2 rounded ${viewMode === 'summary' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>
-                <List size={18} /> Summary
-              </button>
-              <button onClick={() => setViewMode('analysis')} className={`flex items-center gap-2 px-3 py-2 rounded ${viewMode === 'analysis' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>
+              {/* Input Dropdown */}
+              <div className="relative">
+                <button 
+                  onClick={() => setShowInputDropdown(!showInputDropdown)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded ${
+                    ['field', 'table', 'notes'].includes(viewMode) ? 'bg-blue-600 text-white' : 'bg-gray-200'
+                  }`}
+                >
+                  Input ▼
+                </button>
+                {showInputDropdown && (
+                  <div className="absolute top-full left-0 mt-1 bg-white shadow-lg rounded border z-10">
+                    <button 
+                      onClick={() => { setViewMode('field'); setShowInputDropdown(false); }}
+                      className="block w-full text-left px-4 py-2 hover:bg-gray-100 whitespace-nowrap"
+                    >
+                      <Grid size={16} className="inline mr-2" /> Field Map
+                    </button>
+                    <button 
+                      onClick={() => { setViewMode('table'); setShowInputDropdown(false); }}
+                      className="block w-full text-left px-4 py-2 hover:bg-gray-100 whitespace-nowrap"
+                    >
+                      <List size={16} className="inline mr-2" /> Table View
+                    </button>
+                    <button 
+                      onClick={() => { setViewMode('notes'); setShowInputDropdown(false); }}
+                      className="block w-full text-left px-4 py-2 hover:bg-gray-100 whitespace-nowrap"
+                    >
+                      <FileText size={16} className="inline mr-2" /> Notes
+                    </button>
+                  </div>
+                )}
+              </div>
+              
+              {/* Analysis Tab (merged Summary + Analysis) */}
+              <button 
+                onClick={() => setViewMode('analysis')}
+                className={`flex items-center gap-2 px-4 py-2 rounded ${
+                  viewMode === 'analysis' ? 'bg-blue-600 text-white' : 'bg-gray-200'
+                }`}
+              >
                 <BarChart3 size={18} /> Analysis
-              </button>
-              <button onClick={() => setViewMode('notes')} className={`flex items-center gap-2 px-3 py-2 rounded ${viewMode === 'notes' ? 'bg-blue-600 text-white' : 'bg-gray-200'}`}>
-                <FileText size={18} /> Notes
               </button>
             </div>
           </div>
@@ -691,24 +737,33 @@ const TrialDataTool = () => {
 
           {/* Field View Controls */}
           {viewMode === 'field' && (
-            <div className="bg-white p-4 rounded-lg shadow mb-4 flex gap-2">
-              <button
-                onMouseDown={() => setShowTreatments(true)}
-                onMouseUp={() => setShowTreatments(false)}
-                onMouseLeave={() => setShowTreatments(false)}
-                onTouchStart={() => setShowTreatments(true)}
-                onTouchEnd={() => setShowTreatments(false)}
-                className="flex-1 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
-              >
-                <Eye size={20} className="inline mr-2" /> Hold to Show Treatments
-              </button>
-              <button onClick={generateTestData} className="px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700">
-                <Plus size={20} className="inline mr-2" /> Fill Test Data
-              </button>
+            <div className="bg-white p-4 rounded-lg shadow mb-4">
+              <div className="flex gap-2 flex-wrap">
+                <button
+                  onMouseDown={() => setShowTreatments(true)}
+                  onMouseUp={() => setShowTreatments(false)}
+                  onMouseLeave={() => setShowTreatments(false)}
+                  onTouchStart={() => setShowTreatments(true)}
+                  onTouchEnd={() => setShowTreatments(false)}
+                  className="flex-1 px-4 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700"
+                >
+                  <Eye size={20} className="inline mr-2" /> Hold to Show Treatments
+                </button>
+                <button onClick={generateTestData} className="px-4 py-3 bg-orange-600 text-white rounded-lg hover:bg-orange-700">
+                  <Plus size={20} className="inline mr-2" /> Fill Test Data
+                </button>
+                <button 
+                  onClick={() => setReverseColorScale(!reverseColorScale)}
+                  className="px-4 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2"
+                >
+                  <RotateCw size={20} /> {reverseColorScale ? 'Dark = High' : 'Dark = Low'}
+                </button>
+              </div>
             </div>
           )}
         </>
       )}
+
       {/* Field Map View */}
       {viewMode === 'field' && currentDateObj && selectedAssessmentType && (
         <div className="bg-white p-4 rounded-lg shadow">
@@ -769,16 +824,50 @@ const TrialDataTool = () => {
               return (
                 <>
                   <div className="font-medium mb-2">
-                    Color Scale - Data Range: {actualMin} to {actualMax} (Permitted: {assessment?.min}-{assessment?.max})
+                    Color Scale - Data Range: {actualMin} to {actualMax} (Scale: {assessment?.min}-{assessment?.max})
+                    {reverseColorScale && <span className="ml-2 text-orange-600">⚠️ Reversed</span>}
                   </div>
                   <div className="grid grid-cols-5 sm:grid-cols-10 gap-1 text-xs">
-                    {['bg-red-300', 'bg-red-200', 'bg-orange-300', 'bg-orange-200', 'bg-yellow-300', 
-                      'bg-yellow-200', 'bg-lime-300', 'bg-green-200', 'bg-green-300', 'bg-green-400'].map((color, idx) => (
-                      <div key={idx} className="flex flex-col items-center">
-                        <div className={`w-full h-8 ${color} border rounded`}></div>
-                        <span className="mt-1">{idx === 0 ? 'Low' : idx === 9 ? 'High' : `${idx * 10}%`}</span>
-                      </div>
-                    ))}
+                    <div className="flex flex-col items-center">
+                      <div className="w-full h-8 bg-white border-2 border-gray-300 rounded"></div>
+                      <span className="mt-1">{reverseColorScale ? 'High' : 'Low'}</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <div className="w-full h-8 bg-green-50 border-2 border-green-200 rounded"></div>
+                      <span className="mt-1">10%</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <div className="w-full h-8 bg-green-100 border-2 border-green-300 rounded"></div>
+                      <span className="mt-1">20%</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <div className="w-full h-8 bg-green-200 border-2 border-green-400 rounded"></div>
+                      <span className="mt-1">30%</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <div className="w-full h-8 bg-green-300 border-2 border-green-500 rounded"></div>
+                      <span className="mt-1">40%</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <div className="w-full h-8 bg-green-400 border-2 border-green-600 rounded"></div>
+                      <span className="mt-1">50%</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <div className="w-full h-8 bg-green-500 border-2 border-green-700 rounded"></div>
+                      <span className="mt-1">60%</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <div className="w-full h-8 bg-green-600 border-2 border-green-800 rounded"></div>
+                      <span className="mt-1">70%</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <div className="w-full h-8 bg-green-700 border-2 border-green-900 rounded"></div>
+                      <span className="mt-1">80%</span>
+                    </div>
+                    <div className="flex flex-col items-center">
+                      <div className="w-full h-8 bg-green-800 border-2 border-green-950 rounded"></div>
+                      <span className="mt-1">{reverseColorScale ? 'Low' : 'High'}</span>
+                    </div>
                   </div>
                 </>
               );
@@ -786,6 +875,7 @@ const TrialDataTool = () => {
           </div>
         </div>
       )}
+
       {/* Table View */}
       {viewMode === 'table' && currentDateObj && selectedAssessmentType && (
         <div className="bg-white p-4 rounded-lg shadow overflow-x-auto">
@@ -832,63 +922,68 @@ const TrialDataTool = () => {
           </table>
         </div>
       )}
-      {/* Summary Table View */}
-      {viewMode === 'summary' && selectedAssessmentType && assessmentDates.length > 0 && (
-        <div className="bg-white p-4 rounded-lg shadow overflow-x-auto">
-          <h3 className="text-lg font-bold mb-4">Summary Table - {selectedAssessmentType}</h3>
-          <table className="w-full text-sm border-collapse">
-            <thead>
-              <tr className="border-b-2 border-gray-300">
-                <th className="p-3 text-left bg-gray-100 sticky left-0">Treatment</th>
-                {assessmentDates.map((dateObj, idx) => (
-                  <th key={idx} className="p-3 text-center bg-gray-100 min-w-32">
-                    {dateObj.date}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {config.treatments.map((treatment, treatmentIdx) => (
-                <tr key={treatmentIdx} className="border-b hover:bg-gray-50">
-                  <td className="p-3 font-medium bg-gray-50 sticky left-0">{treatment}</td>
-                  {assessmentDates.map((dateObj, dateIdx) => {
-                    const treatmentValues = layout.flat()
-                      .filter(plot => plot.treatment === treatmentIdx)
-                      .map(plot => {
-                        const plotData = dateObj.assessments[selectedAssessmentType][plot.plot];
-                        return plotData.entered && plotData.value !== '' ? parseFloat(plotData.value) : null;
-                      })
-                      .filter(v => v !== null);
-                    if (treatmentValues.length === 0) {
-                      return <td key={dateIdx} className="p-3 text-center text-gray-400">-</td>;
-                    }
-                    const mean = treatmentValues.reduce((a, b) => a + b, 0) / treatmentValues.length;
-                    const variance = treatmentValues.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / treatmentValues.length;
-                    const stdError = Math.sqrt(variance / treatmentValues.length);
-                    return (
-                      <td key={dateIdx} className="p-3 text-center">
-                        <div className="font-medium">{mean.toFixed(2)}</div>
-                        {treatmentValues.length > 1 && (
-                          <div className="text-xs text-gray-500">± {stdError.toFixed(2)}</div>
-                        )}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <div className="mt-4 text-xs text-gray-600">
-            <p>Values shown as: Mean ± Standard Error</p>
+
+      {/* Notes View */}
+      {viewMode === 'notes' && currentDateObj && selectedAssessmentType && (
+        <div className="bg-white p-6 rounded-lg shadow">
+          <h3 className="text-xl font-bold mb-4">Notes - {currentDateObj.date} - {selectedAssessmentType}</h3>
+          <div className="mb-6">
+            <label className="block text-sm font-medium mb-2">Assessment Notes</label>
+            <textarea
+              value={notes[`${currentDateObj.date}_${selectedAssessmentType}`] || ''}
+              onChange={(e) => updateNotes(currentDateObj.date, selectedAssessmentType, e.target.value)}
+              className="w-full p-3 border rounded min-h-[200px]"
+              placeholder="Enter observations, weather conditions, notable findings..."
+            />
+          </div>
+
+          {/* Mock Voice Recording Button */}
+          <div className="mb-6">
+            <button 
+              onClick={() => alert('Voice transcription coming in Phase 2! For now, please type your notes.')}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-300 text-gray-600 rounded cursor-not-allowed"
+              disabled
+            >
+              🎤 Voice Recording (Coming Soon)
+            </button>
+          </div>
+
+          {/* Photo Gallery */}
+          <div>
+            <h4 className="font-medium mb-3">Photos from this Assessment</h4>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
+              {layout.flat().map(plot => {
+                const photoKey = `${currentDateObj.date}_${plot.plot}`;
+                const plotPhotos = photos[photoKey] || [];
+                return plotPhotos.map((photo, photoIdx) => (
+                  <div key={`${plot.plot}-${photoIdx}`} className="relative group">
+                    <img src={photo} alt={`${plot.plot}`} className="w-full h-32 object-cover rounded border" />
+                    <div className="absolute top-1 left-1 bg-black/70 text-white text-xs px-2 py-1 rounded">
+                      {plot.plot}
+                    </div>
+                    <button
+                      onClick={() => deletePhoto(plot.plot, currentDateObj.date, photoIdx)}
+                      className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+                    >
+                      <X size={16} />
+                    </button>
+                  </div>
+                ));
+              })}
+            </div>
+            {Object.keys(photos).filter(key => key.startsWith(currentDateObj.date)).length === 0 && (
+              <p className="text-gray-500 text-sm">No photos uploaded yet. Add photos in Field Map view.</p>
+            )}
           </div>
         </div>
       )}
-      {/* Analysis View */}
+
+      {/* MERGED Analysis View (was Summary + Analysis) */}
       {viewMode === 'analysis' && selectedAssessmentType && assessmentDates.length > 0 && (
         <div className="space-y-6">
           {/* Statistics Table for All Dates */}
           <div className="bg-white p-6 rounded-lg shadow">
-            <h3 className="text-xl font-bold mb-4">ANOVA Results - {selectedAssessmentType}</h3>
+            <h3 className="text-xl font-bold mb-4">Statistical Analysis - {selectedAssessmentType}</h3>
             <div className="overflow-x-auto">
               <table className="w-full text-sm border-collapse mb-6">
                 <thead>
@@ -897,7 +992,7 @@ const TrialDataTool = () => {
                     {assessmentDates.map((dateObj, idx) => (
                       <th key={idx} className="p-3 text-center bg-gray-100 min-w-40">
                         <div>{dateObj.date}</div>
-                        <div className="text-xs font-normal text-gray-600 mt-1">Mean (Group)</div>
+                        <div className="text-xs font-normal text-gray-600 mt-1">Mean ± SE (Group)</div>
                       </th>
                     ))}
                   </tr>
@@ -915,9 +1010,12 @@ const TrialDataTool = () => {
                         if (!treatmentStats) {
                           return <td key={dateIdx} className="p-3 text-center text-gray-400">-</td>;
                         }
+                        const variance = treatmentStats.values.reduce((sum, val) => 
+                          sum + Math.pow(val - treatmentStats.mean, 2), 0) / treatmentStats.values.length;
+                        const stdError = Math.sqrt(variance / treatmentStats.values.length);
                         return (
                           <td key={dateIdx} className="p-3 text-center">
-                            <div className="font-medium">{treatmentStats.mean.toFixed(2)}</div>
+                            <div className="font-medium">{treatmentStats.mean.toFixed(2)} ± {stdError.toFixed(2)}</div>
                             <div className="text-xs font-bold text-blue-600">({treatmentStats.group})</div>
                           </td>
                         );
@@ -938,6 +1036,7 @@ const TrialDataTool = () => {
                       <div className="space-y-1 text-xs">
                         <div>F-value: {stats.fValue}</div>
                         <div>LSD (95%): {stats.lsd}</div>
+                        <div>MS Error: {stats.msError}</div>
                         <div className={stats.significant ? 'text-green-600 font-medium' : 'text-gray-600'}>
                           {stats.significant ? '✓ Significant (p < 0.05)' : '○ Not Significant'}
                         </div>
@@ -1030,51 +1129,9 @@ const TrialDataTool = () => {
           </div>
         </div>
       )}
-      {/* Notes View */}
-      {viewMode === 'notes' && currentDateObj && selectedAssessmentType && (
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h3 className="text-xl font-bold mb-4">Notes - {currentDateObj.date} - {selectedAssessmentType}</h3>
-          <div className="mb-6">
-            <label className="block text-sm font-medium mb-2">Assessment Notes</label>
-            <textarea
-              value={notes[`${currentDateObj.date}_${selectedAssessmentType}`] || ''}
-              onChange={(e) => updateNotes(currentDateObj.date, selectedAssessmentType, e.target.value)}
-              className="w-full p-3 border rounded min-h-[200px]"
-              placeholder="Enter observations, weather conditions, notable findings, or any other relevant information..."
-            />
-          </div>
-
-          {/* Photo Gallery */}
-          <div>
-            <h4 className="font-medium mb-3">Photos from this Assessment</h4>
-            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {layout.flat().map(plot => {
-                const photoKey = `${currentDateObj.date}_${plot.plot}`;
-                const plotPhotos = photos[photoKey] || [];
-                return plotPhotos.map((photo, photoIdx) => (
-                  <div key={`${plot.plot}-${photoIdx}`} className="relative group">
-                    <img src={photo} alt={`${plot.plot}`} className="w-full h-32 object-cover rounded border" />
-                    <div className="absolute top-1 left-1 bg-black/70 text-white text-xs px-2 py-1 rounded">
-                      {plot.plot}
-                    </div>
-                    <button
-                      onClick={() => deletePhoto(plot.plot, currentDateObj.date, photoIdx)}
-                      className="absolute top-1 right-1 bg-red-500 text-white p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                ));
-              })}
-            </div>
-            {Object.keys(photos).filter(key => key.startsWith(currentDateObj.date)).length === 0 && (
-              <p className="text-gray-500 text-sm">No photos uploaded yet. Add photos in Field Map view.</p>
-            )}
-          </div>
-        </div>
-      )}
     </div>
   );
 };
 
 export default TrialDataTool;
+  
