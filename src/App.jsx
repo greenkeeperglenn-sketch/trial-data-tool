@@ -258,6 +258,7 @@ const TrialDataTool = () => {
       'bg-red-100 border-red-400'
     ];
     return colors[treatmentIdx % colors.length];
+  };
 const exportTrialJSON = () => {
     const trial = trials[currentTrialId];
     if (!trial) return;
