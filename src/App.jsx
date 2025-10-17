@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, Download, Upload, BarChart3, Grid, List, Eye, ChevronLeft, ChevronRight, Camera, FileText, X, RotateCw } from 'lucide-react';
+import { Plus, Trash2, Download, Upload, BarChart3, Grid, List, Eye, ChevronLeft, ChevronRight, Camera, FileText, X, RotateCw, Lock, Unlock, Navigation, GripVertical } from 'lucide-react';
 
 const TrialDataTool = () => {
   const [step, setStep] = useState('library');
@@ -22,6 +22,10 @@ const TrialDataTool = () => {
     ]
   });
   const [layout, setLayout] = useState([]);
+  const [gridLayout, setGridLayout] = useState([]); // 2D array for visual layout
+  const [orientation, setOrientation] = useState(0); // 0=N, 90=E, 180=S, 270=W
+  const [layoutLocked, setLayoutLocked] = useState(false);
+  const [draggedPlot, setDraggedPlot] = useState(null);
   const [assessmentDates, setAssessmentDates] = useState([]);
   const [currentDate, setCurrentDate] = useState('');
   const [selectedAssessmentType, setSelectedAssessmentType] = useState('');
@@ -55,6 +59,9 @@ const TrialDataTool = () => {
       name: config.trialName,
       config,
       layout,
+      gridLayout,
+      orientation,
+      layoutLocked,
       assessmentDates,
       photos,
       notes,
@@ -68,7 +75,7 @@ const TrialDataTool = () => {
     if (currentTrialId && layout.length > 0) {
       saveCurrentTrial();
     }
-  }, [config, layout, assessmentDates, photos, notes]);
+  }, [config, layout, gridLayout, orientation, layoutLocked, assessmentDates, photos, notes]);
 
   const createNewTrial = () => {
     const id = Date.now().toString();
@@ -90,6 +97,9 @@ const TrialDataTool = () => {
       ]
     });
     setLayout([]);
+    setGridLayout([]);
+    setOrientation(0);
+    setLayoutLocked(false);
     setAssessmentDates([]);
     setPhotos({});
     setNotes({});
@@ -102,6 +112,9 @@ const TrialDataTool = () => {
     setCurrentTrialId(trialId);
     setConfig(trial.config);
     setLayout(trial.layout);
+    setGridLayout(trial.gridLayout || []);
+    setOrientation(trial.orientation || 0);
+    setLayoutLocked(trial.layoutLocked || false);
     setAssessmentDates(trial.assessmentDates);
     setPhotos(trial.photos || {});
     setNotes(trial.notes || {});
@@ -119,7 +132,133 @@ const TrialDataTool = () => {
     }
   };
 
-  const exportTrialJSON = () => {
+  // Generate initial grid layout
+  const generateLayout = () => {
+    const grid = [];
+    for (let block = 0; block < config.numBlocks; block++) {
+      const row = [];
+      const treatments = [...Array(config.numTreatments).keys()];
+      const shuffled = [...treatments].sort(() => Math.random() - 0.5);
+      
+      shuffled.forEach(treatmentIdx => {
+        row.push({
+          block: block + 1,
+          treatment: treatmentIdx,
+          treatmentName: config.treatments[treatmentIdx],
+          plot: `B${block + 1}-T${treatmentIdx + 1}`,
+          isBlank: false
+        });
+      });
+      grid.push(row);
+    }
+    
+    setGridLayout(grid);
+    
+    // Flatten for compatibility
+    const flatLayout = grid.flatMap(row => row.filter(p => !p.isBlank));
+    setLayout(flatLayout.map(p => [p]));
+    
+    setStep('layoutBuilder');
+  };
+
+  // Insert blank plot
+  const insertBlankPlot = (rowIdx, colIdx, direction) => {
+    const newGrid = gridLayout.map(row => [...row]);
+    const blankPlot = {
+      plot: `BLANK-${Date.now()}`,
+      treatmentName: 'Blank',
+      isBlank: true,
+      block: null,
+      treatment: null
+    };
+    
+    if (direction === 'horizontal') {
+      newGrid[rowIdx].splice(colIdx + 1, 0, blankPlot);
+    } else {
+      const newRow = Array(newGrid[0].length).fill(null).map(() => ({
+        ...blankPlot,
+        plot: `BLANK-${Date.now()}-${Math.random()}`
+      }));
+      newGrid.splice(rowIdx + 1, 0, newRow);
+    }
+    
+    setGridLayout(newGrid);
+    updateLayoutFromGrid(newGrid);
+  };
+
+  // Drag and drop handlers
+  const handleDragStart = (e, rowIdx, colIdx) => {
+    if (layoutLocked) return;
+    setDraggedPlot({ rowIdx, colIdx });
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  const handleDrop = (e, targetRowIdx, targetColIdx) => {
+    e.preventDefault();
+    if (!draggedPlot || layoutLocked) return;
+    
+    const newGrid = gridLayout.map(row => [...row]);
+    const source = newGrid[draggedPlot.rowIdx][draggedPlot.colIdx];
+    const target = newGrid[targetRowIdx][targetColIdx];
+    
+    // Swap plots
+    newGrid[draggedPlot.rowIdx][draggedPlot.colIdx] = target;
+    newGrid[targetRowIdx][targetColIdx] = source;
+    
+    setGridLayout(newGrid);
+    updateLayoutFromGrid(newGrid);
+    setDraggedPlot(null);
+  };
+
+  // Update flat layout from grid
+  const updateLayoutFromGrid = (grid) => {
+    const flatLayout = grid.flatMap(row => row.filter(p => !p.isBlank));
+    setLayout(flatLayout.map(p => [p]));
+  };
+
+  // Rotate orientation
+  const rotateOrientation = () => {
+    setOrientation((orientation + 90) % 360);
+  };
+
+  // Lock/Unlock layout
+  const toggleLayoutLock = () => {
+    if (layoutLocked) {
+      if (confirm('⚠️ ARE YOU ABSOLUTELY SURE?\n\nUnlocking the layout will allow you to modify plot positions.\nThis may affect existing data if plot IDs change.\n\nProceed with caution!')) {
+        setLayoutLocked(false);
+      }
+    } else {
+      setLayoutLocked(true);
+      setStep('entry');
+    }
+  };
+
+  // Finalize and go to data entry
+  const finalizeLayout = () => {
+    setLayoutLocked(true);
+    setStep('entry');
+  };
+
+  // Get treatment color for layout display
+  const getTreatmentColorClass = (treatmentIdx) => {
+    const colors = [
+      'bg-blue-100 border-blue-400',
+      'bg-green-100 border-green-400',
+      'bg-yellow-100 border-yellow-400',
+      'bg-purple-100 border-purple-400',
+      'bg-pink-100 border-pink-400',
+      'bg-orange-100 border-orange-400',
+      'bg-teal-100 border-teal-400',
+      'bg-indigo-100 border-indigo-400',
+      'bg-red-100 border-red-400'
+    ];
+    return colors[treatmentIdx % colors.length];
+const exportTrialJSON = () => {
     const trial = trials[currentTrialId];
     if (!trial) return;
     const dataStr = JSON.stringify(trial, null, 2);
@@ -182,7 +321,7 @@ const TrialDataTool = () => {
       csv += treatment;
       assessmentDates.forEach(dateObj => {
         const treatmentValues = layout.flat()
-          .filter(plot => plot.treatment === treatmentIdx)
+          .filter(plot => plot.treatment === treatmentIdx && !plot.isBlank)
           .map(plot => {
             const plotData = dateObj.assessments[selectedAssessmentType][plot.plot];
             return plotData?.entered && plotData.value !== '' ? parseFloat(plotData.value) : null;
@@ -208,35 +347,15 @@ const TrialDataTool = () => {
     URL.revokeObjectURL(url);
   };
 
-  const generateLayout = () => {
-    const newLayout = [];
-    for (let block = 1; block <= config.numBlocks; block++) {
-      const blockPlots = [];
-      const treatments = [...Array(config.numTreatments).keys()];
-      const shuffled = [...treatments].sort(() => Math.random() - 0.5);
-      shuffled.forEach(treatmentIdx => {
-        blockPlots.push({
-          block,
-          treatment: treatmentIdx,
-          treatmentName: config.treatments[treatmentIdx],
-          plot: `B${block}-T${treatmentIdx + 1}`
-        });
-      });
-      newLayout.push(blockPlots);
-    }
-    setLayout(newLayout);
-    setStep('entry');
-  };
-
   const addAssessmentDate = () => {
     if (!currentDate) return;
     const newDate = { date: currentDate, assessments: {} };
     config.assessmentTypes.forEach(type => {
       newDate.assessments[type.name] = {};
-      layout.forEach(block => {
-        block.forEach(plot => {
+      gridLayout.flat().forEach(plot => {
+        if (!plot.isBlank) {
           newDate.assessments[type.name][plot.plot] = { value: '', entered: false };
-        });
+        }
       });
     });
     setAssessmentDates([...assessmentDates, newDate]);
@@ -274,6 +393,7 @@ const TrialDataTool = () => {
     const bestTreatment = Math.floor(Math.random() * config.numTreatments);
     const updatedDate = { ...currentDateObj };
     layout.flat().forEach(plot => {
+      if (plot.isBlank) return;
       const range = assessment.max - assessment.min;
       const midPoint = assessment.min + (range * 0.6);
       let value;
@@ -335,7 +455,6 @@ const TrialDataTool = () => {
     let normalized = Math.max(0, Math.min(1, (numValue - min) / range));
     if (reverseColorScale) normalized = 1 - normalized;
     
-    // White to dark green scale
     if (normalized < 0.1) return 'bg-white border-gray-300';
     else if (normalized < 0.2) return 'bg-green-50 border-green-200';
     else if (normalized < 0.3) return 'bg-green-100 border-green-300';
@@ -409,8 +528,7 @@ const TrialDataTool = () => {
   };
 
   const currentDateObj = assessmentDates[currentDateIndex];
-
-  // Library View
+// Library View
   if (step === 'library') {
     const trialList = Object.values(trials).sort((a, b) => 
       new Date(b.lastModified) - new Date(a.lastModified)
@@ -453,6 +571,7 @@ const TrialDataTool = () => {
                   <div>Blocks: {trial.config.numBlocks} | Treatments: {trial.config.numTreatments}</div>
                   <div>Assessments: {trial.assessmentDates.length}</div>
                   <div>Modified: {new Date(trial.lastModified).toLocaleDateString()}</div>
+                  {trial.layoutLocked && <div className="text-green-600 font-medium">✓ Layout Locked</div>}
                 </div>
                 <button onClick={() => loadTrial(trial.id)} className="w-full px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded">
                   Open Trial
@@ -606,15 +725,209 @@ const TrialDataTool = () => {
       </div>
     );
   }
+  // Layout Builder View
+  if (step === 'layoutBuilder') {
+    const getOrientationLabel = () => {
+      switch(orientation) {
+        case 0: return 'North ↑';
+        case 90: return 'East →';
+        case 180: return 'South ↓';
+        case 270: return 'West ←';
+        default: return 'North ↑';
+      }
+    };
 
-  // Data Entry View continues...
+    return (
+      <div className="p-6 max-w-7xl mx-auto">
+        <div className="mb-4 flex justify-between items-center">
+          <div>
+            <h1 className="text-3xl font-bold">Layout Builder</h1>
+            <p className="text-gray-600">Arrange your trial plots</p>
+          </div>
+          <button onClick={() => setStep('setup')} className="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">
+            ← Back to Setup
+          </button>
+        </div>
+
+        {/* Controls */}
+        <div className="bg-white p-4 rounded-lg shadow mb-4 flex gap-4 flex-wrap items-center">
+          <button 
+            onClick={rotateOrientation}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            <Navigation size={20} /> Rotate: {getOrientationLabel()}
+          </button>
+          
+          <button 
+            onClick={finalizeLayout}
+            className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+          >
+            <Lock size={20} /> Finalize & Lock Layout
+          </button>
+
+          <div className="text-sm text-gray-600">
+            Drag plots to rearrange • Click + to add blanks
+          </div>
+        </div>
+
+        {/* Compass Indicator */}
+        <div className="bg-white p-4 rounded-lg shadow mb-4">
+          <div className="flex justify-center">
+            <div className="relative w-24 h-24 border-2 border-gray-300 rounded-full flex items-center justify-center">
+              <div 
+                className="absolute w-full h-full flex items-start justify-center transition-transform duration-300"
+                style={{ transform: `rotate(${orientation}deg)` }}
+              >
+                <div className="text-2xl font-bold text-red-600">N</div>
+              </div>
+              <div className="absolute inset-0 flex items-center justify-center text-xs text-gray-400">
+                <div className="absolute top-2">N</div>
+                <div className="absolute right-2">E</div>
+                <div className="absolute bottom-2">S</div>
+                <div className="absolute left-2">W</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Grid Layout */}
+        <div className="bg-white p-6 rounded-lg shadow">
+          <h3 className="text-lg font-bold mb-4">Plot Layout Grid</h3>
+          
+          <div className="overflow-x-auto">
+            <div className="inline-block min-w-full">
+              {gridLayout.map((row, rowIdx) => (
+                <div key={rowIdx}>
+                  {/* Row of plots */}
+                  <div className="flex items-center">
+                    {row.map((plot, colIdx) => (
+                      <div key={colIdx} className="relative">
+                        {/* Plot cell */}
+                        <div
+                          draggable={!layoutLocked}
+                          onDragStart={(e) => handleDragStart(e, rowIdx, colIdx)}
+                          onDragOver={handleDragOver}
+                          onDrop={(e) => handleDrop(e, rowIdx, colIdx)}
+                          className={`
+                            w-24 h-24 m-1 border-2 rounded flex flex-col items-center justify-center
+                            ${plot.isBlank ? 'bg-gray-100 border-gray-300 border-dashed' : getTreatmentColorClass(plot.treatment)}
+                            ${!layoutLocked ? 'cursor-move hover:shadow-lg' : 'cursor-default'}
+                            transition-all
+                          `}
+                        >
+                          {!plot.isBlank && (
+                            <>
+                              <div className="text-xs font-bold">{plot.plot}</div>
+                              <div className="text-xs text-gray-600">{plot.treatmentName}</div>
+                              {!layoutLocked && <GripVertical size={12} className="text-gray-400 mt-1" />}
+                            </>
+                          )}
+                          {plot.isBlank && (
+                            <div className="text-xs text-gray-400">Blank</div>
+                          )}
+                        </div>
+
+                        {/* Horizontal + button (right side of plot) */}
+                        {!layoutLocked && colIdx < row.length - 1 && (
+                          <button
+                            onClick={() => insertBlankPlot(rowIdx, colIdx, 'horizontal')}
+                            className="absolute top-1/2 -right-3 -translate-y-1/2 w-6 h-6 bg-orange-500 text-white rounded-full hover:bg-orange-600 flex items-center justify-center z-10"
+                            title="Insert blank plot here"
+                          >
+                            <Plus size={14} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    
+                    {/* Add column button at end of row */}
+                    {!layoutLocked && (
+                      <button
+                        onClick={() => insertBlankPlot(rowIdx, row.length - 1, 'horizontal')}
+                        className="w-6 h-6 ml-2 bg-orange-500 text-white rounded-full hover:bg-orange-600 flex items-center justify-center"
+                        title="Add blank column"
+                      >
+                        <Plus size={14} />
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Vertical + buttons (below row) */}
+                  {!layoutLocked && rowIdx < gridLayout.length - 1 && (
+                    <div className="flex items-center ml-1">
+                      {row.map((_, colIdx) => (
+                        <button
+                          key={colIdx}
+                          onClick={() => insertBlankPlot(rowIdx, colIdx, 'vertical')}
+                          className="w-24 h-6 m-1 bg-orange-500 text-white rounded hover:bg-orange-600 flex items-center justify-center"
+                          title="Insert blank row here"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+
+              {/* Add row button at bottom */}
+              {!layoutLocked && (
+                <div className="flex items-center ml-1 mt-2">
+                  {gridLayout[0]?.map((_, colIdx) => (
+                    <button
+                      key={colIdx}
+                      onClick={() => insertBlankPlot(gridLayout.length - 1, colIdx, 'vertical')}
+                      className="w-24 h-6 m-1 bg-orange-500 text-white rounded hover:bg-orange-600 flex items-center justify-center"
+                      title="Add blank row"
+                    >
+                      <Plus size={14} />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Instructions */}
+          <div className="mt-6 p-4 bg-blue-50 rounded">
+            <h4 className="font-medium mb-2">Instructions:</h4>
+            <ul className="text-sm space-y-1 text-gray-700">
+              <li>• <strong>Drag & Drop:</strong> Click and drag plots to rearrange</li>
+              <li>• <strong>Add Blanks:</strong> Click orange <Plus size={12} className="inline" /> buttons to insert blank plots</li>
+              <li>• <strong>Rotate View:</strong> Change orientation to match field layout</li>
+              <li>• <strong>Finalize:</strong> Lock layout when ready to start data entry</li>
+            </ul>
+          </div>
+
+          {/* Treatment Legend */}
+          <div className="mt-6 p-4 bg-gray-50 rounded">
+            <h4 className="font-medium mb-3">Treatment Legend:</h4>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+              {config.treatments.map((treatment, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <div className={`w-6 h-6 border-2 rounded ${getTreatmentColorClass(idx)}`}></div>
+                  <span className="text-sm">{treatment}</span>
+                </div>
+              ))}
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 border-2 border-dashed border-gray-300 bg-gray-100 rounded"></div>
+                <span className="text-sm">Blank Plot</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 // Data Entry View
   return (
     <div className="p-4 max-w-7xl mx-auto">
       <div className="mb-4 flex justify-between items-center flex-wrap gap-2">
         <div>
           <h1 className="text-2xl font-bold">{config.trialName}</h1>
-          <p className="text-sm text-gray-600">Auto-saved</p>
+          <p className="text-sm text-gray-600">
+            Auto-saved • {layoutLocked ? '🔒 Layout Locked' : '🔓 Layout Unlocked'}
+          </p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <button onClick={exportToCSV} className="flex items-center gap-2 px-3 py-2 bg-green-600 text-white rounded text-sm hover:bg-green-700">
@@ -626,6 +939,16 @@ const TrialDataTool = () => {
           <button onClick={exportTrialJSON} className="flex items-center gap-2 px-3 py-2 bg-purple-600 text-white rounded text-sm hover:bg-purple-700">
             <Download size={16} /> Backup Trial
           </button>
+          {!layoutLocked && (
+            <button onClick={() => setStep('layoutBuilder')} className="flex items-center gap-2 px-3 py-2 bg-orange-600 text-white rounded text-sm hover:bg-orange-700">
+              <Grid size={16} /> Edit Layout
+            </button>
+          )}
+          {layoutLocked && (
+            <button onClick={toggleLayoutLock} className="flex items-center gap-2 px-3 py-2 bg-red-600 text-white rounded text-sm hover:bg-red-700">
+              <Unlock size={16} /> Unlock Layout
+            </button>
+          )}
           <button onClick={() => { saveCurrentTrial(); setStep('library'); }} className="px-3 py-2 bg-gray-200 rounded text-sm hover:bg-gray-300">
             ← Library
           </button>
@@ -676,7 +999,7 @@ const TrialDataTool = () => {
             </div>
           </div>
 
-          {/* NEW Navigation Structure */}
+          {/* Navigation Structure */}
           <div className="bg-white p-4 rounded-lg shadow mb-4">
             <div className="flex gap-2 flex-wrap">
               {/* Input Dropdown */}
@@ -713,7 +1036,7 @@ const TrialDataTool = () => {
                 )}
               </div>
               
-              {/* Analysis Tab (merged Summary + Analysis) */}
+              {/* Analysis Tab */}
               <button 
                 onClick={() => setViewMode('analysis')}
                 className={`flex items-center gap-2 px-4 py-2 rounded ${
@@ -768,45 +1091,62 @@ const TrialDataTool = () => {
       {viewMode === 'field' && currentDateObj && selectedAssessmentType && (
         <div className="bg-white p-4 rounded-lg shadow">
           <h3 className="text-lg font-bold mb-4">{currentDateObj.date} - {selectedAssessmentType}</h3>
-          <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 xl:grid-cols-10 gap-2">
-            {layout.flatMap(block => block).map((plot, plotIdx) => {
-              const plotData = currentDateObj.assessments[selectedAssessmentType][plot.plot];
-              const colorClass = getValueColor(plotData.value, selectedAssessmentType, currentDateObj);
-              const assessment = config.assessmentTypes.find(a => a.name === selectedAssessmentType);
-              const photoKey = `${currentDateObj.date}_${plot.plot}`;
-              const plotPhotos = photos[photoKey] || [];
-              return (
-                <div key={plotIdx} className={`p-2 border-2 rounded ${colorClass} transition-colors`}>
-                  <div className="text-xs font-medium mb-1">{plot.plot}</div>
-                  {showTreatments && (
-                    <div className="text-xs mb-1 font-semibold bg-white/90 px-1 rounded">
-                      {plot.treatmentName}
-                    </div>
-                  )}
-                  <input
-                    type="number"
-                    step="0.1"
-                    min={assessment?.min}
-                    max={assessment?.max}
-                    value={plotData.value}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      if (val === '' || (parseFloat(val) >= assessment.min && parseFloat(val) <= assessment.max)) {
-                        updateData(currentDateObj.date, selectedAssessmentType, plot.plot, val);
-                      }
-                    }}
-                    className="w-full p-1 text-sm border rounded bg-white mb-1"
-                    placeholder={`${assessment?.min}-${assessment?.max}`}
-                  />
-                  <label className="block">
-                    <input type="file" accept="image/*" onChange={(e) => handlePhotoUpload(plot.plot, currentDateObj.date, e)} className="hidden" />
-                    <div className="text-xs text-center bg-blue-100 hover:bg-blue-200 p-1 rounded cursor-pointer">
-                      <Camera size={12} className="inline" /> {plotPhotos.length > 0 ? `${plotPhotos.length}` : '+'}
-                    </div>
-                  </label>
+          
+          {/* Display grid layout matching builder */}
+          <div className="overflow-x-auto mb-4">
+            <div className="inline-block min-w-full">
+              {gridLayout.map((row, rowIdx) => (
+                <div key={rowIdx} className="flex">
+                  {row.map((plot, colIdx) => {
+                    if (plot.isBlank) {
+                      return (
+                        <div key={colIdx} className="w-24 h-24 m-1 border-2 border-dashed border-gray-300 bg-gray-100 rounded flex items-center justify-center">
+                          <span className="text-xs text-gray-400">Blank</span>
+                        </div>
+                      );
+                    }
+                    
+                    const plotData = currentDateObj.assessments[selectedAssessmentType][plot.plot];
+                    const colorClass = getValueColor(plotData?.value, selectedAssessmentType, currentDateObj);
+                    const assessment = config.assessmentTypes.find(a => a.name === selectedAssessmentType);
+                    const photoKey = `${currentDateObj.date}_${plot.plot}`;
+                    const plotPhotos = photos[photoKey] || [];
+                    
+                    return (
+                      <div key={colIdx} className={`w-24 h-auto m-1 p-2 border-2 rounded ${colorClass} transition-colors`}>
+                        <div className="text-xs font-medium mb-1">{plot.plot}</div>
+                        {showTreatments && (
+                          <div className="text-xs mb-1 font-semibold bg-white/90 px-1 rounded">
+                            {plot.treatmentName}
+                          </div>
+                        )}
+                        <input
+                          type="number"
+                          step="0.1"
+                          min={assessment?.min}
+                          max={assessment?.max}
+                          value={plotData?.value || ''}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (val === '' || (parseFloat(val) >= assessment.min && parseFloat(val) <= assessment.max)) {
+                              updateData(currentDateObj.date, selectedAssessmentType, plot.plot, val);
+                            }
+                          }}
+                          className="w-full p-1 text-xs border rounded bg-white mb-1"
+                          placeholder={`${assessment?.min}-${assessment?.max}`}
+                        />
+                        <label className="block">
+                          <input type="file" accept="image/*" onChange={(e) => handlePhotoUpload(plot.plot, currentDateObj.date, e)} className="hidden" />
+                          <div className="text-xs text-center bg-blue-100 hover:bg-blue-200 p-1 rounded cursor-pointer">
+                            <Camera size={10} className="inline" /> {plotPhotos.length > 0 ? `${plotPhotos.length}` : '+'}
+                          </div>
+                        </label>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
+              ))}
+            </div>
           </div>
           
           {/* Color Legend */}
@@ -875,8 +1215,7 @@ const TrialDataTool = () => {
           </div>
         </div>
       )}
-
-      {/* Table View */}
+ {/* Table View */}
       {viewMode === 'table' && currentDateObj && selectedAssessmentType && (
         <div className="bg-white p-4 rounded-lg shadow overflow-x-auto">
           <h3 className="text-lg font-bold mb-4">{currentDateObj.date} - {selectedAssessmentType}</h3>
@@ -890,7 +1229,7 @@ const TrialDataTool = () => {
               </tr>
             </thead>
             <tbody>
-              {layout.flat().map((plot, idx) => {
+              {gridLayout.flat().filter(p => !p.isBlank).map((plot, idx) => {
                 const plotData = currentDateObj.assessments[selectedAssessmentType][plot.plot];
                 const assessment = config.assessmentTypes.find(a => a.name === selectedAssessmentType);
                 return (
@@ -904,7 +1243,7 @@ const TrialDataTool = () => {
                         step="0.1"
                         min={assessment?.min}
                         max={assessment?.max}
-                        value={plotData.value}
+                        value={plotData?.value || ''}
                         onChange={(e) => {
                           const val = e.target.value;
                           if (val === '' || (parseFloat(val) >= assessment.min && parseFloat(val) <= assessment.max)) {
@@ -952,7 +1291,7 @@ const TrialDataTool = () => {
           <div>
             <h4 className="font-medium mb-3">Photos from this Assessment</h4>
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-              {layout.flat().map(plot => {
+              {gridLayout.flat().filter(p => !p.isBlank).map(plot => {
                 const photoKey = `${currentDateObj.date}_${plot.plot}`;
                 const plotPhotos = photos[photoKey] || [];
                 return plotPhotos.map((photo, photoIdx) => (
@@ -978,7 +1317,7 @@ const TrialDataTool = () => {
         </div>
       )}
 
-      {/* MERGED Analysis View (was Summary + Analysis) */}
+      {/* MERGED Analysis View */}
       {viewMode === 'analysis' && selectedAssessmentType && assessmentDates.length > 0 && (
         <div className="space-y-6">
           {/* Statistics Table for All Dates */}
@@ -1135,3 +1474,8 @@ const TrialDataTool = () => {
 
 export default TrialDataTool;
   
+
+
+
+    
+  };
